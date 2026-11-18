@@ -1,39 +1,12 @@
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Iterable, Iterator
-
 import io
 import sys
+from pathlib import Path
+from typing import Iterable
 
 from docutils import nodes
 from docutils.core import publish_doctree
 
-
-@dataclass(frozen=True)
-class RstSettings:
-    """Configuration shared by the RST processing classes."""
-
-    docs_root: Path
-    max_files_per_batch: int = 20
-    max_chars_per_batch: int = 100_000
-    chunk_limit: int = 12_000
-    excluded_nodes: tuple[type[nodes.Node], ...] = (
-        nodes.literal_block,
-        nodes.doctest_block,
-        nodes.raw,
-        nodes.comment,
-        nodes.system_message,
-    )
-
-
-class RstFileFinder:
-    """Locates .rst files beneath the docs root."""
-
-    def __init__(self, settings: RstSettings):
-        self.settings = settings
-
-    def files(self) -> Iterator[Path]:
-        yield from self.settings.docs_root.rglob("*.rst")
+from ..config import RstSettings
 
 
 class RstParser:
@@ -55,8 +28,8 @@ class RstParser:
 class RstTextExtractor:
     """Produces plain text for each RST file as a single string."""
 
-    def __init__(self, parser: RstParser = RstParser()):
-        self.parser = parser
+    def __init__(self, parser: RstParser | None = None):
+        self.parser = parser or RstParser()
 
     def extract(self, path: Path) -> str:
         doctree = self.parser.parse(path)
@@ -66,9 +39,9 @@ class RstTextExtractor:
 class RstBlockExtractor:
     """Extracts labelled, section-aware text blocks from RST files."""
 
-    def __init__(self, settings: RstSettings, parser: RstParser = RstParser()):
+    def __init__(self, settings: RstSettings, parser: RstParser | None = None):
         self.settings = settings
-        self.parser = parser
+        self.parser = parser or RstParser()
 
     def extract(self, path: Path) -> list[str]:
         warnings = io.StringIO()
@@ -193,71 +166,3 @@ class TextChunker:
         if len(block) <= self.limit:
             return [block]
         return [block[i : i + self.limit] for i in range(0, len(block), self.limit)]
-
-
-class DocumentBatcher:
-    """Groups texts into batches bounded by file count and character count."""
-
-    def __init__(self, max_files: int, max_chars: int):
-        self.max_files = max_files
-        self.max_chars = max_chars
-
-    def batch(self, items: Iterable[str]) -> Iterator[list[str]]:
-        batch: list[str] = []
-        batch_chars = 0
-
-        for text in items:
-            if batch and (
-                len(batch) >= self.max_files or batch_chars + len(text) > self.max_chars
-            ):
-                yield batch
-                batch = []
-                batch_chars = 0
-
-            batch.append(text)
-            batch_chars += len(text)
-
-        if batch:
-            yield batch
-
-
-class RstCorpus:
-    """Coordinates the other classes to build documents, batches, and chunks."""
-
-    def __init__(self, settings: RstSettings):
-        self.settings = settings
-        self.finder = RstFileFinder(settings)
-        self.text_extractor = RstTextExtractor()
-        self.block_extractor = RstBlockExtractor(settings)
-        self.chunker = TextChunker(settings.chunk_limit)
-        self.batcher = DocumentBatcher(
-            settings.max_files_per_batch,
-            settings.max_chars_per_batch,
-        )
-
-    def documents(self) -> Iterator[str]:
-        """Yield one parsed document at a time, skipping files that fail."""
-        for path in self.finder.files():
-            try:
-                text = self.text_extractor.extract(path)
-            except Exception as exc:
-                print(f"Skipping {path}: {exc}")
-                continue
-
-            if text:
-                relative_path = path.relative_to(self.settings.docs_root)
-                yield f"Source file: {relative_path}\n\n{text}"
-
-    def batches(self) -> Iterator[list[str]]:
-        return self.batcher.batch(self.documents())
-
-    def chunks_for_file(self, path: Path) -> list[str]:
-        return self.chunker.chunk(self.block_extractor.extract(path))
-
-
-if __name__ == "__main__":
-    settings = RstSettings(docs_root=Path("docs"))
-    corpus = RstCorpus(settings)
-
-    for batch in corpus.batches():
-        print(f"Batch with {len(batch)} document(s)")
