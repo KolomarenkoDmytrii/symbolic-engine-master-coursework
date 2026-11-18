@@ -1,44 +1,44 @@
-from __future__ import annotations
 
-import uvicorn
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-from api import register_api_routers
+from .api.endpoints_execution import router as execution_router
+from .api.endpoints_graph import router as graph_router
+from .api.endpoints_rules import router as rules_router
+
+from .dependencies import initialize_services, close_services
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_services(app)
+    yield
+    close_services(app)
+
 
 app = FastAPI(
-    title="ArduPilot Neuro-Symbolic Expert System API",
-    description=(
-        "High-performance asynchronous backend and API gateway for the ArduPilot "
-        "neuro-symbolic expert system, integrating FalkorDB/Neo4j graph retrieval, "
-        "SWI-Prolog symbolic reasoning, and LLM agent orchestration."
-    ),
+    title="Copter Reasoning API",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+app.include_router(
+    execution_router,
+    prefix="/api/v1",
 )
 
-# Register all modular API endpoints for MCP tools and symbolic inference
-register_api_routers(app)
+app.include_router(
+    graph_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    rules_router,
+    prefix="/api/v1",
+)
 
 
-@app.get("/healthz", tags=["Health Management"])
-async def health_check() -> dict[str, str]:
-    """Health check endpoint for container liveness and readiness probes.
-
-    Supports Podman/Quadlet health check orchestration and ensures service availability.
-    """
-    return {
-        "status": "healthy",
-        "service": "ardupilot-expert-api-gateway",
-    }
-
-
-if __name__ == "__main__":
-    uvicorn.main(["main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"])
+@app.get("/health")
+async def health():
+    return {"status": "ok"}

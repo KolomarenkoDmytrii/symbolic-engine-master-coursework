@@ -1,47 +1,46 @@
-from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
-class ConsultRequest(BaseModel):
-    """Схема запиту для завантаження правил або текстів у сесію PrologMCP."""
-
-    source_code: str = Field(
-        ..., description="Декларативні правила або факти у синтаксисі SWI-Prolog."
-    )
-    dialect: str = Field(
-        default="swi", description="Діалект Prolog (за замовчуванням swi)."
-    )
+class QueryRequest(BaseModel):
+    question: str = Field(min_length=1)
+    history: list[dict[str, str]] = Field(default_factory=list)
 
 
-class ConsultResponse(BaseModel):
-    """Схема відповіді при успішному завантаженні правил."""
+class GraphSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
 
+
+class FactGenerationRequest(BaseModel):
+    question: str = Field(min_length=1)
+    graph_state: dict[str, Any]
+
+
+class PlanRequest(BaseModel):
+    question: str
+    signatures: list[dict[str, Any]]
+    graph_facts: str = ""
+
+
+class PrologExecutionRequest(BaseModel):
+    goal: str = Field(min_length=1)
+
+
+class ExecutionResponse(BaseModel):
     status: str
-    load_id: str
-    message: str
+    result: dict[str, Any]
+    answer: str | None = None
 
 
-class GoalExecutionRequest(BaseModel):
-    """Схема запиту для виконання логічної цілі[cite: 4]."""
-
-    load_id: str = Field(..., description="Ідентифікатор активної сесії PrologMCP.")
-    goal: str = Field(
-        ..., description="Цільовий запит для перевірки логічного виведення."
-    )
+class GraphResponse(BaseModel):
+    nodes: list[dict[str, Any]]
+    relations: list[dict[str, Any]]
 
 
-class GoalExecutionResponse(BaseModel):
-    """Схема відповіді із результатами виконання цілі[cite: 4]."""
-
-    status: str
-    result: Dict[str, Any]
-    error: Optional[str] = None
-
-
-class GraphQueryRequest(BaseModel):
-    """Схема запиту до графової бази даних FalkorDB."""
-
-    query: str = Field(..., description="Cypher-запит до графа.")
-    graph_name: str = Field(default="copter", description="Назва графа в FalkorDB.")
+class RuleArtifactResponse(BaseModel):
+    artifact_id: str
+    domain: str
+    intents: list[str]
+    source_path: str

@@ -1,34 +1,50 @@
-from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from .schemas import GoalExecutionRequest, GoalExecutionResponse
+from fastapi import APIRouter, Depends, HTTPException
 
-router = APIRouter(prefix="/execution", tags=["Symbolic Execution"])
+from .schemas import (
+    QueryRequest,
+    ExecutionResponse,
+)
+from .services.chat_service import ChatService
+from ..dependencies import get_chat_service
 
 
-@router.post("/run-goal", response_model=GoalExecutionResponse)
-def run_goal_endpoint(payload: GoalExecutionRequest) -> GoalExecutionResponse:
-    """Виконує логічний запит у межах активної сесії PrologMCP з перевіркою безпеки[cite: 4, 10]."""
+router = APIRouter(
+    prefix="/execution",
+    tags=["Execution"],
+)
+
+
+@router.post("/query")
+async def execute_query(
+    request: QueryRequest,
+    service: ChatService = Depends(get_chat_service),
+):
     try:
-        if payload.load_id not in ["session_copter_default"]:
-            raise HTTPException(status_code=404, detail="Session not found or expired.")
-
-        # Детермінована симуляція логічного виведення для аварійного сценарію батареї
-        if "battery_failsafe" in payload.goal or "10.2" in payload.goal:
-            return GoalExecutionResponse(
-                status="success",
-                result={
-                    "bindings": {"Action": "RTL", "Voltage": 10.2},
-                    "proof_tree": [
-                        "kg_prop(battery, low_voltage, 10.2)",
-                        "threshold(battery, 10.5)",
-                        "trigger_failsafe(RTL)",
-                    ],
-                },
-            )
-
-        return GoalExecutionResponse(
-            status="success", result={"bindings": {}, "proof_tree": []}
+        result = await service.query(
+            question=request.question,
+            history=[
+                (item["role"], item["content"])
+                for item in request.history
+            ],
         )
+
+        return result
+
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
     except Exception as exc:
-        return GoalExecutionResponse(status="error", result={}, error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="Internal execution error.",
+        ) from exc
