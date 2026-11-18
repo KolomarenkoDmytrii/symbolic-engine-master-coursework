@@ -1,0 +1,11 @@
+retrico[llm,linking]
+docutils
+ijson
+tiktoken
+protobuf
+sentencepiece
+python-dotenv
+pydantic
+langchain
+langchain-openai
+langchain-prolog

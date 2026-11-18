@@ -1,0 +1,32 @@
+{
+    "entity_labels": [
+        "failsafe_mechanism",
+        "failsafe_trigger",
+        "failsafe_action",
+        "flight_mode",
+        "parameter",
+        "vehicle_component",
+        "sensor",
+        "estimator",
+        "communication_link",
+        "mission_command",
+        "configuration_value",
+        "threshold",
+        "timeout",
+        "vehicle_state"
+    ],
+    "relationship_labels": [
+        "triggered_by",
+        "monitors",
+        "configured_by",
+        "takes_action",
+        "switches_to",
+        "falls_back_to",
+        "bypassed_by",
+        "applies_to",
+        "requires",
+        "remains_in",
+        "clears_when",
+        "modifies"
+    ]
+}
