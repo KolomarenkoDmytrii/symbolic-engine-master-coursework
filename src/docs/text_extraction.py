@@ -17,7 +17,13 @@ class RstSettings:
     max_files_per_batch: int = 20
     max_chars_per_batch: int = 100_000
     chunk_limit: int = 12_000
-    excluded_nodes: tuple[type[nodes.Node], ...] = (nodes.comment,)
+    excluded_nodes: tuple[type[nodes.Node], ...] = (
+        nodes.literal_block,
+        nodes.doctest_block,
+        nodes.raw,
+        nodes.comment,
+        nodes.system_message,
+    )
 
 
 class RstFileFinder:
