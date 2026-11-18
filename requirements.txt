@@ -9,3 +9,5 @@ pydantic
 langchain
 langchain-openai
 langchain-prolog
+uvicorn
+fastapi
