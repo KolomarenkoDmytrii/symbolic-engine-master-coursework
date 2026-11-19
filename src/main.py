@@ -2,9 +2,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from .api.endpoints_execution import router as execution_router
-from .api.endpoints_graph import router as graph_router
-from .api.endpoints_rules import router as rules_router
+from .api.endpoints.execution import router as execution_router
+from .api.endpoints.graph import router as graph_router
+from .api.endpoints.rules import router as rules_router
 from .api.dependencies import close_services, initialize_services
 
 

@@ -30,6 +30,7 @@ class QueryRequest(BaseModel):
             raise ValueError("Question cannot be blank.")
         return value
 
+
 class GraphSearchRequest(BaseModel):
     query: str = Field(min_length=1)
 
@@ -96,3 +97,33 @@ class ExecutionResponse(BaseModel):
     goal: str
     prolog_result: dict[str, Any]
     answer: str | None = None
+
+
+class GraphExtractionRequest(BaseModel):
+    source_text: str = Field(
+        ...,
+        min_length=1,
+        description="Input text or query for knowledge graph extraction.",
+    )
+
+
+class GraphExtractionResponse(BaseModel):
+    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    relations: list[dict[str, Any]] = Field(default_factory=list)
+    atoms: list[str] = Field(default_factory=list)
+
+
+class RuleExtractionRequest(BaseModel):
+    source_text: str = Field(
+        ...,
+        min_length=1,
+        description="Input text or domain specification for Prolog rule extraction.",
+    )
+    domain: str | None = Field(
+        default=None, description="Optional target domain filter."
+    )
+
+
+class RuleExtractionResponse(BaseModel):
+    extracted_rules: list[dict[str, Any]] = Field(default_factory=list)
+    signatures: list[Any] = Field(default_factory=list)

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from .dependencies import get_chat_service
-from .schemas import ExecutionResponse, QueryRequest
-from .services.chat_service import ChatService
+from ..dependencies import get_chat_service
+from ..schemas import ExecutionResponse, QueryRequest
+from ..services.chat_service import ChatService
 
 
 router = APIRouter(
