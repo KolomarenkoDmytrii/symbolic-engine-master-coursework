@@ -1,5 +1,6 @@
 retrico[llm,linking]
 docutils
+types-docutils
 ijson
 tiktoken
 protobuf

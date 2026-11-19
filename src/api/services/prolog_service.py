@@ -14,44 +14,65 @@ from langchain_prolog import (
     PrologRunnable,
 )
 
-from src.data_models import PipelineContext
+from ...data_models import PipelineContext
+from .prolog_syntax import safe_atom
 
 
 MAX_RETURNED_SOLUTIONS = 10
 PROLOG_TIME_LIMIT_SECONDS = 20.0
 
 
-def safe_atom(value: str) -> str:
+# def safe_atom(value: str) -> str:
 
-    escaped = []
+#     escaped = []
 
-    for char in value:
+#     for char in value:
 
-        codepoint = ord(char)
+#         codepoint = ord(char)
 
-        if char == "\\":
-            escaped.append("\\\\")
+#         if char == "\\":
+#             escaped.append("\\\\")
 
-        elif char == "'":
-            escaped.append("''")
+#         elif char == "'":
+#             escaped.append("''")
 
-        elif char == "\n":
-            escaped.append("\\n")
+#         elif char == "\n":
+#             escaped.append("\\n")
 
-        elif char == "\r":
-            escaped.append("\\r")
+#         elif char == "\r":
+#             escaped.append("\\r")
 
-        elif char == "\t":
-            escaped.append("\\t")
+#         elif char == "\t":
+#             escaped.append("\\t")
 
-        elif codepoint < 32 or codepoint == 127:
-            escaped.append(f"\\x{codepoint:x}\\")
+#         elif codepoint < 32 or codepoint == 127:
+#             escaped.append(f"\\x{codepoint:x}\\")
 
-        else:
-            escaped.append(char)
+#         else:
+#             escaped.append(char)
 
-    return "'" + "".join(escaped) + "'"
+#     return "'" + "".join(escaped) + "'"
 
+def normalize_prolog_result(result: Any) -> dict[str, Any]:
+    if result is False or result is None or result == []:
+        return {
+            "status": "failure",
+            "result": False,
+            "truncated": False,
+        }
+
+    if isinstance(result, list):
+        return {
+            "status": "success",
+            "result": result[:MAX_RETURNED_SOLUTIONS],
+            "truncated": len(result) > MAX_RETURNED_SOLUTIONS,
+        }
+
+    return {
+        "status": "success",
+        "result": result,
+        "truncated": False,
+    }
 
 def ensure_sources_have_no_module_declaration(
     source: str,
@@ -63,6 +84,29 @@ def ensure_sources_have_no_module_declaration(
         source,
     ):
         raise ValueError(f"Module declarations are not supported: {path}")
+
+
+def _top_level_arity(arguments: str) -> int:
+    if not arguments.strip():
+        return 0
+
+    depth = 0
+    quoted = False
+    arity = 1
+
+    for char in arguments:
+        if char == "'":
+            quoted = not quoted
+        elif not quoted:
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            elif char == "," and depth == 0:
+                arity += 1
+
+    return arity
+
 
 
 def dynamic_declaration(
@@ -107,28 +151,8 @@ def dynamic_declaration(
             predicate = match.group(1)
             arguments = match.group(2)
 
-            if arguments is None:
-                arity = 0
-            else:
-                # Count top-level commas rather than all commas.
-                arity = 1
-                depth = 0
-                quoted = False
-
-                for char in arguments:
-                    if char == "'":
-                        quoted = not quoted
-                    elif not quoted:
-                        if char in "([{":
-                            depth += 1
-                        elif char in ")]}":
-                            depth -= 1
-                        elif char == "," and depth == 0:
-                            arity += 1
-
-                if not arguments.strip():
-                    arity = 0
-
+            # Count top-level commas rather than all commas.
+            arity = 0 if arguments is None else _top_level_arity(arguments)
             indicators.add(f"{predicate}/{arity}")
 
     if not indicators:
@@ -178,51 +202,13 @@ def _prolog_worker(
     goal: str,
     connection: Any,
 ) -> None:
-
     try:
-
-        config = PrologConfig(
-            rules_file=rules_file,
-        )
-
-        runnable = PrologRunnable(
-            prolog_config=config,
-        )
-
+        config = PrologConfig(rules_file=rules_file)
+        runnable = PrologRunnable(prolog_config=config)
         result = runnable.invoke(goal)
+        connection.send(normalize_prolog_result(result))
 
-        if isinstance(result, list):
-
-            truncated = len(result) > MAX_RETURNED_SOLUTIONS
-
-            result = result[:MAX_RETURNED_SOLUTIONS]
-
-            payload = {
-                "status": "success",
-                "result": result,
-                "truncated": truncated,
-            }
-
-        elif result is False:
-
-            payload = {
-                "status": "failure",
-                "result": False,
-                "truncated": False,
-            }
-
-        else:
-
-            payload = {
-                "status": "success",
-                "result": result,
-                "truncated": False,
-            }
-
-        connection.send(payload)
-
-    except BaseException as exc:
-
+    except Exception as exc:
         connection.send(
             {
                 "status": "exception",
@@ -303,7 +289,7 @@ def run_prolog_isolated(
             process.join(timeout=2)
 
 
-class PrologService:
+class PrologService: # pylint: disable=too-few-public-methods
 
     def __init__(
         self,

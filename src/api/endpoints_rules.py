@@ -1,24 +1,50 @@
-from __future__ import annotations
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from .schemas import ConsultRequest, ConsultResponse
+from fastapi import APIRouter, Depends, HTTPException
 
-router = APIRouter(prefix="/rules", tags=["Rules Management"])
-
-# Реєстр активних сесій (у реальному середовищі замінюється на менеджер сесій PrologMCP)
-ACTIVE_SESSIONS: dict[str, str] = {}
+from src.api.dependencies import get_rule_service
+from src.api.schemas import RuleSelectionRequest, RuleSelectionResponse
+from src.api.services.rule_service import RuleService
 
 
-@router.post("/consult", response_model=ConsultResponse)
-def consult_rules_endpoint(payload: ConsultRequest) -> ConsultResponse:
-    """Завантажує правила у середовище ізольованого модульного пісочнику PrologMCP[cite: 4]."""
+router = APIRouter(
+    prefix="/rules",
+    tags=["Rules Management"],
+)
+
+
+def _artifact_summary(artifact: Any) -> dict[str, Any]:
+    """Return only public metadata; do not expose server-side file paths."""
+    return {
+        "artifact_id": str(getattr(artifact, "artifact_id", "")),
+        "domain": str(getattr(artifact, "domain", "")),
+    }
+
+
+@router.post("/select", response_model=RuleSelectionResponse)
+def select_rules_endpoint(
+    payload: RuleSelectionRequest,
+    service: RuleService = Depends(get_rule_service),
+) -> RuleSelectionResponse:
     try:
-        load_id = "session_copter_default"
-        ACTIVE_SESSIONS[load_id] = payload.source_code
-        return ConsultResponse(
-            status="success",
-            load_id=load_id,
-            message="Source consulted successfully in isolated module sandbox.",
+        artifacts, signatures = service.select_rules(payload.question)
+
+        return RuleSelectionResponse(
+            selected_rules=[_artifact_summary(item) for item in artifacts],
+            signatures=signatures,
         )
+
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    except HTTPException:
+        raise
+
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="Rule selection failed.",
+        ) from exc

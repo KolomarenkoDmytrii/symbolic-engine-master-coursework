@@ -7,7 +7,11 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from src.data_models import PipelineContext
+from ...data_models import PipelineContext
+from .prolog_syntax import safe_atom
+
+
+VARIABLE_NAME = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
 
 
 def response_text(response: Any) -> str:
@@ -26,124 +30,87 @@ def response_text(response: Any) -> str:
 
     return str(content)
 
+def _validate_plan_argument(argument: dict) -> None:
+    if not isinstance(argument, dict) or len(argument) != 1:
+        raise ValueError("Each argument must contain exactly one kind.")
+
+    kind, item = next(iter(argument.items()))
+    if kind == "var":
+        if not isinstance(item, str) or not VARIABLE_NAME.fullmatch(item):
+            raise ValueError("Invalid planner variable.")
+    elif kind == "atom":
+        if not isinstance(item, str) or not item:
+            raise ValueError("Invalid planner atom.")
+    elif kind == "number":
+        if (
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or (isinstance(item, float) and not math.isfinite(item))
+        ):
+            raise ValueError("Invalid planner number.")
+    else:
+        raise ValueError(f"Unsupported argument kind: {kind!r}")
 
 def parse_plan_json(text: str) -> dict[str, Any]:
-
     cleaned = text.strip()
 
-    cleaned = re.sub(
-        r"^\s*```(?:json)?\s*",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
 
-    cleaned = re.sub(
-        r"\s*```\s*$",
-        "",
-        cleaned,
-    )
+    try:
+        value = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Planner response must be one JSON object.") from exc
 
-    decoder = json.JSONDecoder()
-    candidates = []
+    if not isinstance(value, dict):
+        raise ValueError("Planner response must be a JSON object.")
 
-    for match in re.finditer(r"\{", cleaned):
+    if set(value) != {"predicate", "arguments"}:
+        raise ValueError("Planner JSON has unexpected or missing fields.")
 
-        try:
-            value, _ = decoder.raw_decode(cleaned[match.start() :])
+    if not isinstance(value["predicate"], str):
+        raise ValueError("Planner predicate must be a string.")
 
-        except json.JSONDecodeError:
-            continue
+    if not isinstance(value["arguments"], list):
+        raise ValueError("Planner arguments must be a list.")
 
-        if not isinstance(value, dict):
-            continue
+    for argument in value["arguments"]:
+        _validate_plan_argument(argument)
 
-        if not isinstance(value.get("predicate"), str):
-            continue
-
-        arguments = value.get("arguments")
-
-        if not isinstance(arguments, list):
-            continue
-
-        valid = True
-
-        for argument in arguments:
-
-            if not isinstance(argument, dict) or len(argument) != 1:
-                valid = False
-                break
-
-            kind, item = next(iter(argument.items()))
-
-            if kind == "var":
-
-                if not isinstance(item, str) or not re.fullmatch(
-                    r"(?:[A-Z][A-Za-z0-9_]*|_[A-Za-z0-9_]*)",
-                    item,
-                ):
-                    valid = False
-                    break
-
-            elif kind == "atom":
-
-                if not isinstance(item, str) or not item:
-                    valid = False
-                    break
-
-            elif kind == "number":
-
-                if (
-                    isinstance(item, bool)
-                    or not isinstance(item, (int, float))
-                    or (isinstance(item, float) and not math.isfinite(item))
-                ):
-                    valid = False
-                    break
-
-            else:
-                valid = False
-                break
-
-        if valid:
-            candidates.append(value)
-
-    if not candidates:
-        raise ValueError("Planner returned no valid JSON query plan.")
-
-    return candidates[-1]
+    return value
 
 
-def safe_atom(value: str) -> str:
+# def safe_atom(value: str) -> str:
 
-    escaped = []
+#     escaped = []
 
-    for char in value:
+#     for char in value:
 
-        codepoint = ord(char)
+#         codepoint = ord(char)
 
-        if char == "\\":
-            escaped.append("\\\\")
+#         if char == "\\":
+#             escaped.append("\\\\")
 
-        elif char == "'":
-            escaped.append("''")
+#         elif char == "'":
+#             escaped.append("''")
 
-        elif char == "\n":
-            escaped.append("\\n")
+#         elif char == "\n":
+#             escaped.append("\\n")
 
-        elif char == "\r":
-            escaped.append("\\r")
+#         elif char == "\r":
+#             escaped.append("\\r")
 
-        elif char == "\t":
-            escaped.append("\\t")
+#         elif char == "\t":
+#             escaped.append("\\t")
 
-        elif codepoint < 32 or codepoint == 127:
-            escaped.append(f"\\x{codepoint:x}\\")
+#         elif codepoint < 32 or codepoint == 127:
+#             escaped.append(f"\\x{codepoint:x}\\")
 
-        else:
-            escaped.append(char)
+#         else:
+#             escaped.append(char)
 
-    return "'" + "".join(escaped) + "'"
+#     return "'" + "".join(escaped) + "'"
 
 
 def extract_prolog_atoms(*texts: str) -> set[str]:
@@ -166,7 +133,7 @@ def extract_prolog_atoms(*texts: str) -> set[str]:
 
     bare = set(
         re.findall(
-            r"(?<![A-Za-z0-9_'])" r"[a-z][A-Za-z0-9_]*",
+            r"(?<![A-Za-z0-9_'])[a-z][A-Za-z0-9_]*",
             combined,
         )
     )
@@ -244,6 +211,38 @@ User question:
 
         return parse_plan_json(response_text(response))
 
+    @staticmethod
+    def _render_argument(
+        item: dict[str, Any],
+        allowed_atoms: set[str],
+    ) -> str:
+        if not isinstance(item, dict) or len(item) != 1:
+            raise ValueError("Invalid plan argument.")
+
+        if "atom" in item:
+            atom = item["atom"]
+            if not isinstance(atom, str):
+                raise ValueError("Atom must be a string.")
+            if atom not in allowed_atoms:
+                raise ValueError(f"Unknown Prolog atom: {atom!r}")
+            return safe_atom(atom)
+
+        if "var" in item:
+            variable = item["var"]
+            if not isinstance(variable, str) or not VARIABLE_NAME.fullmatch(variable):
+                raise ValueError("Invalid variable name.")
+            return variable
+
+        if "number" in item:
+            number = item["number"]
+            if isinstance(number, bool) or not isinstance(number, (int, float)):
+                raise ValueError("Invalid number.")
+            if isinstance(number, float) and not math.isfinite(number):
+                raise ValueError("Invalid numeric value.")
+            return repr(number)
+
+        raise ValueError("Argument must contain atom, var or number.")
+
     def make_goal(
         self,
         plan: dict[str, Any],
@@ -273,75 +272,17 @@ User question:
                 and signature["arity"] == len(arguments)
             )
         ]
-
         if not matching:
-            raise ValueError(
-                f"No allowed signature for " f"{predicate}/{len(arguments)}."
-            )
+            raise ValueError(f"No allowed signature for {predicate}/{len(arguments)}.")
 
         allowed_atoms = set(context.graph_atoms)
-
         allowed_atoms.update(extract_prolog_atoms(context.graph_facts))
 
         for artifact in context.rule_files:
-
             source = artifact.prolog_path.read_text(encoding="utf-8")
-
             allowed_atoms.update(extract_prolog_atoms(source))
 
-        rendered = []
-        used_variables = set()
-
-        for item in arguments:
-
-            if not isinstance(item, dict) or len(item) != 1:
-                raise ValueError("Invalid plan argument.")
-
-            if "atom" in item:
-
-                atom = item["atom"]
-
-                if not isinstance(atom, str):
-                    raise ValueError("Atom must be a string.")
-
-                if atom not in allowed_atoms:
-                    raise ValueError(f"Unknown Prolog atom: {atom!r}")
-
-                rendered.append(safe_atom(atom))
-
-            elif "var" in item:
-
-                variable = item["var"]
-
-                if not isinstance(variable, str):
-                    raise ValueError("Invalid variable.")
-
-                if not re.fullmatch(
-                    r"[A-Z][A-Za-z0-9_]*",
-                    variable,
-                ):
-                    raise ValueError("Invalid variable name.")
-
-                if variable in used_variables:
-                    raise ValueError("Variable names must be unique.")
-
-                used_variables.add(variable)
-                rendered.append(variable)
-
-            elif "number" in item:
-
-                number = item["number"]
-
-                if isinstance(number, bool) or not isinstance(number, (int, float)):
-                    raise ValueError("Invalid number.")
-
-                if isinstance(number, float) and not math.isfinite(number):
-                    raise ValueError("Invalid numeric value.")
-
-                rendered.append(repr(number))
-
-            else:
-                raise ValueError("Argument must contain atom, var or number.")
+        rendered = [self._render_argument(item, allowed_atoms) for item in arguments]
 
         if not rendered:
             return predicate

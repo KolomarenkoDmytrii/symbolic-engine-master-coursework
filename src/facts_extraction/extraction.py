@@ -1,3 +1,6 @@
+import tempfile
+from pathlib import Path
+
 from ..config import ExtractionSettings
 
 from ..docs.text_extraction import RstTextExtractor
@@ -38,7 +41,7 @@ def extract_facts(
             print(f"[{number}/{total}] Parsing: {relative_path}", flush=True)
 
             try:
-                text = load_rst_text(path, extractor)
+                text = load_rst_text(path, extractor) # pylint: disable=broad-exception-caught
             except Exception as exc:
                 print(
                     f"[{number}/{total}] Skipped: {relative_path} — {exc}", flush=True

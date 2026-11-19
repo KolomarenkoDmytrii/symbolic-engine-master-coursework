@@ -42,8 +42,72 @@ class RuleService:
         self.index_path = index_path.resolve()
         self.top_k = top_k
 
-    def _load_index(self) -> list[dict[str, Any]]:
+    @staticmethod
+    def _rank_records(
+        records: list[dict[str, Any]],
+        question: str,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        query_tokens = tokenize(question)
+        scored = []
 
+        for record in records:
+            if not record.get("rule_count"):
+                continue
+
+            searchable = " ".join(
+                str(record.get(key, ""))
+                for key in ("source_path", "domain", "description")
+            )
+            score = len(query_tokens & tokenize(searchable))
+            if score:
+                scored.append((score, record))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [record for _, record in scored[:top_k]]
+
+    def _build_artifact(self, record: dict[str, Any]) -> RuleArtifact:
+        artifact_id = record.get("source_path")
+        if not isinstance(artifact_id, str) or not artifact_id:
+            raise ValueError("Rule record needs source_path.")
+
+        intents = record.get("intents", [])
+        if not isinstance(intents, list):
+            intents = []
+
+        prolog_path = self._resolve_path(record.get("prolog_path"))
+        provenance_path = self._resolve_path(record.get("provenance_path"))
+
+        assert prolog_path is not None
+        assert provenance_path is not None
+
+        return RuleArtifact(
+            artifact_id=artifact_id,
+            prolog_path=prolog_path,
+            provenance_path=provenance_path,
+            domain=str(record.get("domain", "")),
+            intents=tuple(map(str, intents)),
+            source_path=artifact_id,
+        )
+
+    @staticmethod
+    def _merge_signature(
+        signature_map: dict[tuple[str, int], dict[str, Any]],
+        signature: dict[str, Any],
+    ) -> None:
+        key = (signature["predicate"], signature["arity"])
+        existing = signature_map.get(key)
+
+        if existing is None:
+            signature_map[key] = signature
+            return
+
+        for field in ("artifacts", "domains", "evidence"):
+            for value in signature[field]:
+                if value not in existing[field]:
+                    existing[field].append(value)
+
+    def _load_index(self) -> list[dict[str, Any]]:
         if not self.index_path.is_file():
             raise FileNotFoundError(f"Rule index not found: {self.index_path}")
 
@@ -90,7 +154,9 @@ class RuleService:
             candidate.relative_to(self.rules_dir)
 
         except ValueError as exc:
-            raise ValueError(f"Rule path outside RULES_DIR: {candidate}") from exc
+            raise ValueError(
+                f"Rule path outside rulers_directory: {candidate}"
+            ) from exc
 
         if not candidate.is_file():
 
@@ -154,109 +220,26 @@ class RuleService:
     def select_rules(
         self,
         question: str,
-    ) -> tuple[
-        list[RuleArtifact],
-        list[dict[str, Any]],
-    ]:
-
-        records = self._load_index()
-        query_tokens = tokenize(question)
-
-        scored = []
-
-        for record in records:
-
-            if not record.get("rule_count"):
-                continue
-
-            searchable = " ".join(
-                str(record.get(key, ""))
-                for key in (
-                    "source_path",
-                    "domain",
-                    "description",
-                )
-            )
-
-            score = len(query_tokens & tokenize(searchable))
-
-            if score:
-                scored.append((score, record))
-
-        scored.sort(
-            key=lambda item: item[0],
-            reverse=True,
+    ) -> tuple[list[RuleArtifact], list[dict[str, Any]]]:
+        selected = self._rank_records(
+            self._load_index(),
+            question,
+            self.top_k,
         )
-
-        selected = [record for _, record in scored[: self.top_k]]
-
         if not selected:
             raise LookupError("No matching rule artifacts found.")
 
         artifacts: list[RuleArtifact] = []
-        signature_map: dict[
-            tuple[str, int],
-            dict[str, Any],
-        ] = {}
+        signature_map: dict[tuple[str, int], dict[str, Any]] = {}
 
         for record in selected:
-
-            artifact_id = record.get("source_path")
-
-            if not isinstance(artifact_id, str) or not artifact_id:
-                raise ValueError("Rule record needs source_path.")
-
-            intents = record.get("intents", [])
-
-            if not isinstance(intents, list):
-                intents = []
-
-            prolog_path = self._resolve_path(
-                record.get("prolog_path"),
-            )
-
-            provenance_path = self._resolve_path(
-                record.get("provenance_path"),
-            )
-
-            assert prolog_path is not None
-            assert provenance_path is not None
-
-            artifact = RuleArtifact(
-                artifact_id=artifact_id,
-                prolog_path=prolog_path,
-                provenance_path=provenance_path,
-                domain=str(record.get("domain", "")),
-                intents=tuple(map(str, intents)),
-                source_path=artifact_id,
-            )
-
+            artifact = self._build_artifact(record)
             artifacts.append(artifact)
 
             for signature in self._extract_signatures(artifact):
-
-                key = (
-                    signature["predicate"],
-                    signature["arity"],
-                )
-
-                existing = signature_map.get(key)
-
-                if existing is None:
-                    signature_map[key] = signature
-                    continue
-
-                for field in (
-                    "artifacts",
-                    "domains",
-                    "evidence",
-                ):
-                    for value in signature[field]:
-                        if value not in existing[field]:
-                            existing[field].append(value)
+                self._merge_signature(signature_map, signature)
 
         signatures = list(signature_map.values())
-
         if not signatures:
             raise LookupError("Selected rules contain no usable signatures.")
 

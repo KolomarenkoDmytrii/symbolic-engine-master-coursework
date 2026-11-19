@@ -1,0 +1,7 @@
+services:
+  reasoning-service:
+    # Keep the container alive for editing/debugging instead of starting the app.
+    command: ["sleep", "infinity"]
+    working_dir: /workspaces/reasoning-service
+    volumes:
+      - .:/workspaces/reasoning-service:Z

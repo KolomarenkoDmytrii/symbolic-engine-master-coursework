@@ -32,3 +32,12 @@ class ExecutionResult:
     goal: str
     prolog_result: dict[str, Any]
     answer: str | None = None
+
+@dataclass
+class AnswerRequest:
+    question: str
+    graph_result: dict[str, Any]
+    signatures: list[dict[str, Any]]
+    goal: str
+    prolog_result: dict[str, Any]
+    history: list[tuple[str, str]] | None = None

@@ -1,4 +1,3 @@
-
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -6,15 +5,16 @@ from fastapi import FastAPI
 from .api.endpoints_execution import router as execution_router
 from .api.endpoints_graph import router as graph_router
 from .api.endpoints_rules import router as rules_router
-
-from .dependencies import initialize_services, close_services
+from .api.dependencies import close_services, initialize_services
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    initialize_services(app)
-    yield
-    close_services(app)
+async def lifespan(fastapi_app: FastAPI):
+    initialize_services(fastapi_app)
+    try:
+        yield
+    finally:
+        await close_services(fastapi_app)
 
 
 app = FastAPI(
@@ -23,20 +23,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(
-    execution_router,
-    prefix="/api/v1",
-)
-
-app.include_router(
-    graph_router,
-    prefix="/api/v1",
-)
-
-app.include_router(
-    rules_router,
-    prefix="/api/v1",
-)
+app.include_router(execution_router, prefix="/api/v1")
+app.include_router(graph_router, prefix="/api/v1")
+app.include_router(rules_router, prefix="/api/v1")
 
 
 @app.get("/health")

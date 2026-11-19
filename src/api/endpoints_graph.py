@@ -1,30 +1,33 @@
-from __future__ import annotations
+from fastapi import APIRouter, Depends, HTTPException
 
-from fastapi import APIRouter, HTTPException
-from .schemas import GraphQueryRequest
-from typing import Any, Dict
-
-router = APIRouter(prefix="/graph", tags=["Knowledge Graph"])
+from .dependencies import get_graph_service
+from .schemas import GraphResponse, GraphSearchRequest
+from .services.graph_service import GraphService
 
 
-@router.post("/query", response_model=Dict[str, Any])
-def query_graph_endpoint(payload: GraphQueryRequest) -> Dict[str, Any]:
-    """Виконує Cypher-запит до FalkorDB та повертає структуровані дані стану БПЛА."""
+router = APIRouter(
+    prefix="/graph",
+    tags=["Knowledge Graph"],
+)
+
+
+@router.post("/query", response_model=GraphResponse)
+async def query_graph_endpoint(
+    payload: GraphSearchRequest,
+    service: GraphService = Depends(get_graph_service),
+) -> GraphResponse:
     try:
-        # Симуляція результату виконання запиту до графа
-        return {
-            "status": "success",
-            "graph_name": payload.graph_name,
-            "nodes": [
-                {
-                    "id": "battery_1",
-                    "labels": ["vehicle_component", "sensor"],
-                    "properties": {"voltage": 10.2},
-                }
-            ],
-            "relations": [
-                {"head": "battery_1", "type": "monitors", "tail": "failsafe_trigger"}
-            ],
-        }
+        result = await service.search(payload.query)
+        return GraphResponse.model_validate(result)
+
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    except HTTPException:
+        raise
+
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="Graph query failed.",
+        ) from exc

@@ -2,64 +2,68 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Sequence
 
-from src.config import settings
+from ...config import ExtractionSettings
+
+# from ...config import api_settings
 
 
-COPTER_FAILSAFE_ENTITY_LABELS = {
-    "failsafe_mechanism",
-    "failsafe_trigger",
-    "failsafe_action",
-    "flight_mode",
-    "parameter",
-    "vehicle_component",
-    "sensor",
-    "estimator",
-    "communication_link",
-    "mission_command",
-    "configuration_value",
-    "threshold",
-    "timeout",
-    "vehicle_state",
-}
+# COPTER_FAILSAFE_ENTITY_LABELS = {
+#     "failsafe_mechanism",
+#     "failsafe_trigger",
+#     "failsafe_action",
+#     "flight_mode",
+#     "parameter",
+#     "vehicle_component",
+#     "sensor",
+#     "estimator",
+#     "communication_link",
+#     "mission_command",
+#     "configuration_value",
+#     "threshold",
+#     "timeout",
+#     "vehicle_state",
+# }
 
-COPTER_FAILSAFE_RELATION_LABELS = {
-    "triggered_by",
-    "monitors",
-    "configured_by",
-    "takes_action",
-    "switches_to",
-    "falls_back_to",
-    "bypassed_by",
-    "applies_to",
-    "requires",
-    "remains_in",
-    "clears_when",
-    "modifies",
-}
+# COPTER_FAILSAFE_RELATION_LABELS = {
+#     "triggered_by",
+#     "monitors",
+#     "configured_by",
+#     "takes_action",
+#     "switches_to",
+#     "falls_back_to",
+#     "bypassed_by",
+#     "applies_to",
+#     "requires",
+#     "remains_in",
+#     "clears_when",
+#     "modifies",
+# }
 
 
 def to_plain_data(value: Any) -> Any:
+    result: Any = str(value)
+
     if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
+        result = value
 
     if isinstance(value, dict):
-        return {str(key): to_plain_data(item) for key, item in value.items()}
+        result = {str(key): to_plain_data(item) for key, item in value.items()}
 
     if isinstance(value, (list, tuple)):
-        return [to_plain_data(item) for item in value]
+        result = [to_plain_data(item) for item in value]
 
     if hasattr(value, "model_dump"):
-        return to_plain_data(value.model_dump())
+        result = to_plain_data(value.model_dump())
 
     if hasattr(value, "dict") and callable(value.dict):
-        return to_plain_data(value.dict())
+        result = to_plain_data(value.dict())
 
     if hasattr(value, "__dict__"):
-        return to_plain_data(vars(value))
+        result = to_plain_data(vars(value))
 
-    return str(value)
+    return result
 
 
 def first_present(
@@ -106,6 +110,8 @@ def node_labels(node: dict[str, Any]) -> set[str]:
 
     if isinstance(labels, list):
         values.extend(labels)
+    elif isinstance(labels, str):
+        values.append(labels)
 
     for source in (node, properties):
         for key in ("label", "type"):
@@ -186,6 +192,8 @@ def normalize_graph_result(raw: Any) -> dict[str, Any]:
 
 def filter_graph_to_copter_schema(
     graph_result: dict[str, Any],
+    entity_labels: Sequence[str],
+    relation_labels: Sequence[str],
 ) -> dict[str, Any]:
 
     nodes = []
@@ -199,7 +207,7 @@ def filter_graph_to_copter_schema(
         if not isinstance(node, dict):
             continue
 
-        if not (node_labels(node) & COPTER_FAILSAFE_ENTITY_LABELS):
+        if not node_labels(node) & set(entity_labels):
             continue
 
         key = node_key(node)
@@ -254,7 +262,7 @@ def filter_graph_to_copter_schema(
         if relation_type is None:
             continue
 
-        if str(relation_type).casefold() not in COPTER_FAILSAFE_RELATION_LABELS:
+        if str(relation_type).strip().casefold() not in relation_labels:
             continue
 
         head = first_present(
@@ -318,8 +326,10 @@ def graph_atom_values(
 
 class GraphService:
 
-    def __init__(self, repository: Any):
+    def __init__(self, repository: Any, settings: ExtractionSettings):
         self.repository = repository
+        self.entity_labels = settings.entity_labels
+        self.relation_labels = settings.relation_labels
 
     async def search(
         self,
@@ -333,12 +343,12 @@ class GraphService:
 
         normalized = normalize_graph_result(raw)
 
-        return filter_graph_to_copter_schema(normalized)
+        return filter_graph_to_copter_schema(normalized, self.entity_labels, self.relation_labels)
 
     async def get_state(self) -> dict[str, Any]:
         raw = await asyncio.to_thread(self.repository.get_state)
-
-        return normalize_graph_result(raw)
+        normalized = normalize_graph_result(raw)
+        return filter_graph_to_copter_schema(normalized, self.entity_labels, self.relation_labels)
 
     def serialize(
         self,

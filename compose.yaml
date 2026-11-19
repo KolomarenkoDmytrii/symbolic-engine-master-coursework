@@ -1,0 +1,88 @@
+services:
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: symbolic-neo4j
+    restart: unless-stopped
+    networks:
+      - backend-net
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
+      # NEO4J_PASSWORD: "${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
+      HEALTHCHECK_PASSWORD: "${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: [ "CMD-SHELL", "cypher-shell -u neo4j -p \"$${HEALTHCHECK_PASSWORD}\" 'RETURN 1' >/dev/null 2>&1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  couchdb:
+    image: docker.io/apache/couchdb:3.4
+    container_name: ardupilot-couchdb
+    restart: unless-stopped
+    networks:
+      - backend-net
+    ports:
+      - "5984:5984"
+    environment:
+      COUCHDB_USER: "${COUCHDB_USER:?Set COUCHDB_USER in .env}"
+      COUCHDB_PASSWORD: "${COUCHDB_PASSWORD:?Set COUCHDB_PASSWORD in .env}"
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    configs:
+      - source: couchdb_single_node
+        target: /opt/couchdb/etc/local.d/10-single-node.ini
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:5984/_up >/dev/null" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  reasoning-service:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: ardupilot-expert/core-service:local
+    container_name: ardupilot-expert-service
+    restart: unless-stopped
+    networks:
+      - backend-net
+    ports:
+      - "8000:8000"
+    environment:
+      APP_MODULE: "${APP_MODULE:-copter_reasoning.main:app}"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}"
+      COUCHDB_URL: "http://${COUCHDB_USER:?Set COUCHDB_USER in .env}:${COUCHDB_PASSWORD:?Set COUCHDB_PASSWORD in .env}@couchdb:5984"
+      RULES_INDEX_DB: ardupilot_rules_index
+    volumes:
+      - ./output:/app/output
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      couchdb:
+        condition: service_healthy
+
+networks:
+  backend-net:
+    driver: bridge
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  couchdb_data:
+
+configs:
+  couchdb_single_node:
+    content: |
+      [couchdb]
+      single_node=true

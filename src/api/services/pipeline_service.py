@@ -7,7 +7,7 @@ from src.api.services.rule_service import RuleService
 from src.api.services.fact_service import FactService
 
 
-class PipelineService:
+class PipelineService: # pylint: disable=too-few-public-methods
 
     def __init__(
         self,

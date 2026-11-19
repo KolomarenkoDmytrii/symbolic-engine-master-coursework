@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.api.services.pipeline_service import PipelineService
-from src.api.services.planning_service import PlanningService
-from src.api.services.prolog_service import PrologService
-from src.api.services.answer_service import AnswerService
+from ...data_models import ExecutionResult, AnswerRequest
+from .pipeline_service import PipelineService
+from .planning_service import PlanningService
+from .prolog_service import PrologService
+from .answer_service import AnswerService
 
 
 class ChatService:
@@ -27,7 +28,7 @@ class ChatService:
         self,
         question: str,
         history: list[tuple[str, str]] | None = None,
-    ) -> dict[str, Any]:
+    ) -> ExecutionResult:
 
         if not question or not question.strip():
             raise ValueError("Question cannot be empty.")
@@ -58,7 +59,7 @@ class ChatService:
         )
 
         # STEP 5: Generate natural-language answer.
-        answer = await self.answer_service.generate(
+        request = AnswerRequest(
             question=question,
             graph_result=context.graph_result,
             signatures=context.signatures,
@@ -66,22 +67,23 @@ class ChatService:
             prolog_result=prolog_result,
             history=history,
         )
+        answer = await self.answer_service.generate(request)
 
-        return {
-            "question": question,
-            "selected_rules": [artifact.artifact_id for artifact in context.rule_files],
-            "generated_facts": context.graph_facts,
-            "plan": plan,
-            "goal": goal,
-            "prolog_result": prolog_result,
-            "answer": answer,
-        }
+        return ExecutionResult(
+            question=question,
+            selected_rules=[
+                artifact.artifact_id
+                for artifact in context.rule_files
+            ],
+            generated_facts=context.graph_facts,
+            plan=plan,
+            goal=goal,
+            prolog_result=prolog_result,
+            answer=answer,
+        )
 
-    async def ask(
-        self,
-        question: str,
-    ) -> str:
 
+    async def ask(self, question: str) -> str | None:
         result = await self.query(question)
+        return result.answer
 
-        return result["answer"]

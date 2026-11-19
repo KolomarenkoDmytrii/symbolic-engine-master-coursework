@@ -1,23 +1,26 @@
 from __future__ import annotations
 
+from typing import Any
+
 import os
 import sys
-from typing import Any
+from time import perf_counter
+
 from langchain_core.exceptions import OutputParserException
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from openai import APIError, LengthFinishReasonError
-from pydantic import ValidationError
+from pydantic import ValidationError, SecretStr
 
+from ..config import extraction_settings
 from .models import (
     DocumentMetadata,
-    Goal,
-    Rule,
+    # Goal,
+    # Rule,
     RuleBatch,
-    ENTITY_PREDICATES,
-    RELATION_PREDICATES,
+    # ENTITY_PREDICATES,
+    # RELATION_PREDICATES,
 )
-from time import perf_counter
 
 EXTRACTION_SYSTEM_PROMPT = f"""
 Task: Extract Logical Rules from Source Text
@@ -39,10 +42,10 @@ Represent each rule using this structure:
 ## 3. Predicate vocabulary restrictions
 Use only the canonical predicates below, plus `param_value/2` for named configuration parameters.
 Unary entity predicates (arity 1):
-{", ".join(f"{entity_predicate}/1" for entity_predicate in ENTITY_PREDICATES)}.
+{", ".join(f"{entity_predicate}/1" for entity_predicate in extraction_settings.entity_labels)}.
 
 Binary relation predicates (arity 2):
-{", ".join(f"{relation_predicate}/2" for relation_predicate in RELATION_PREDICATES)}.
+{", ".join(f"{relation_predicate}/2" for relation_predicate in extraction_settings.relation_labels)}.
 """
 
 EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
@@ -150,14 +153,13 @@ def build_chains(
     max_tokens: int = 16384,
 ) -> tuple[Any, Any]:
     """Construct LangChain extraction and metadata chains."""
-    api_key = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or "local-endpoint"
+    api_key = SecretStr(os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY") or "local-endpoint")
 
     llm = ChatOpenAI(
         base_url=base_url,
         api_key=api_key,
         model=model_name,
         temperature=0,
-        max_tokens=max_tokens,
         timeout=720,
         max_retries=3,
     )

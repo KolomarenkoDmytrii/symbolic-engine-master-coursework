@@ -1,63 +1,71 @@
 from __future__ import annotations
 
 import re
-from typing import Sequence
+# from typing import Sequence
 from pydantic import (
     BaseModel,
     ConfigDict,
-    ValidationError,
+    # ValidationError,
     field_validator,
     model_validator,
 )
+
+from ..config import extraction_settings
 
 # Deliberately limited Prolog term syntax: lowercase atoms, uppercase/underscore variables, and integer terms.
 ATOM_RE = re.compile(r"^[a-z][A-Za-z0-9_]*$")
 VARIABLE_RE = re.compile(r"^[A-Z_][A-Za-z0-9_]*$")
 INTEGER_RE = re.compile(r"^-?\d+$")
 
-ENTITY_PREDICATES = {
-    "failsafe_mechanism",
-    "failsafe_trigger",
-    "failsafe_action",
-    "flight_mode",
-    "parameter",
-    "vehicle_component",
-    "sensor",
-    "estimator",
-    "communication_link",
-    "mission_command",
-    "configuration_value",
-    "threshold",
-    "timeout",
-    "vehicle_state",
-}
+# ENTITY_PREDICATES = {
+#     "failsafe_mechanism",
+#     "failsafe_trigger",
+#     "failsafe_action",
+#     "flight_mode",
+#     "parameter",
+#     "vehicle_component",
+#     "sensor",
+#     "estimator",
+#     "communication_link",
+#     "mission_command",
+#     "configuration_value",
+#     "threshold",
+#     "timeout",
+#     "vehicle_state",
+# }
 
-RELATION_PREDICATES = {
-    "triggered_by",
-    "monitors",
-    "configured_by",
-    "takes_action",
-    "switches_to",
-    "falls_back_to",
-    "bypassed_by",
-    "applies_to",
-    "requires",
-    "remains_in",
-    "clears_when",
-    "modifies",
-}
+# RELATION_PREDICATES = {
+#     "triggered_by",
+#     "monitors",
+#     "configured_by",
+#     "takes_action",
+#     "switches_to",
+#     "falls_back_to",
+#     "bypassed_by",
+#     "applies_to",
+#     "requires",
+#     "remains_in",
+#     "clears_when",
+#     "modifies",
+# }
 
-CANONICAL_ARITY = {
-    **{predicate: 1 for predicate in ENTITY_PREDICATES},
-    **{predicate: 2 for predicate in RELATION_PREDICATES},
-    "param_value": 2,
-}
+# CANONICAL_ARITY = {
+#     **{predicate: 1 for predicate in ENTITY_PREDICATES},
+#     **{predicate: 2 for predicate in RELATION_PREDICATES},
+#     "param_value": 2,
+# }
 
 
 class Goal(BaseModel):
     """Represents a canonical domain predicate, e.g. sensor(X) or monitors(X, Y)."""
 
     model_config = ConfigDict(extra="forbid")
+
+    canonical_arity = {
+        **{predicate: 1 for predicate in extraction_settings.entity_labels},
+        **{predicate: 2 for predicate in extraction_settings.relation_labels},
+        "param_value": 2,
+    }
 
     predicate: str
     args: list[str]
@@ -66,7 +74,7 @@ class Goal(BaseModel):
     @classmethod
     def validate_predicate(cls, value: str) -> str:
         """Validate that the predicate belongs to the canonical vocabulary."""
-        if value not in CANONICAL_ARITY:
+        if value not in cls.canonical_arity:
             raise ValueError(f"Predicate is not in the canonical vocabulary: {value!r}")
         return value
 
@@ -86,7 +94,7 @@ class Goal(BaseModel):
     @model_validator(mode="after")
     def validate_arity(self) -> Goal:
         """Validate that the number of arguments matches the canonical arity for the predicate."""
-        expected = CANONICAL_ARITY[self.predicate]
+        expected = self.canonical_arity[self.predicate]
         if len(self.args) != expected:
             raise ValueError(
                 f"{self.predicate}/{expected} requires {expected} argument(s); "

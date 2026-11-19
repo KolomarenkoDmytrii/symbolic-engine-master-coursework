@@ -15,7 +15,7 @@
         "timeout",
         "vehicle_state"
     ],
-    "relationship_labels": [
+    "relation_labels": [
         "triggered_by",
         "monitors",
         "configured_by",
