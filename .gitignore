@@ -195,3 +195,9 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,python
 
 notes/
+
+# Input (documents) and output data
+data/
+output/
+documents/
+retrico.db

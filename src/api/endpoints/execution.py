@@ -1,9 +1,13 @@
+import traceback
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..dependencies import get_chat_service
 from ..schemas import ExecutionResponse, QueryRequest
 from ..services.chat_service import ChatService
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/execution",
@@ -23,18 +27,19 @@ async def execute_query(
         )
         return ExecutionResponse.model_validate(result)
 
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    except HTTPException:
-        raise
+    except RuntimeError as exc:
+        # Log the error and the traceback so you can see WHY it failed in the console
+        logger.error(f"RuntimeError in execution/query: {str(exc)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     except Exception as exc:
-        # Keep implementation details and tracebacks out of the HTTP response.
+        # For any other unexpected error
+        logger.error(f"Unexpected error in execution/query: {str(exc)}")
+        traceback.print_exc()
         raise HTTPException(
-            status_code=500,
-            detail="Internal execution error.",
-        ) from exc
+            status_code=500, detail="An unexpected internal error occurred."
+        )

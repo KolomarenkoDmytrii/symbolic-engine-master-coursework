@@ -15,6 +15,7 @@ def build_pipeline(json_path: Path, settings: ExtractionSettings):
     builder.graph_store(settings.graph_store)
     builder.chunker(method=settings.chunk_method)
 
+    print("Configuring NER LLM")
     builder.ner_llm(
         base_url=model.base_url,
         api_key=model.api_key,
@@ -23,6 +24,7 @@ def build_pipeline(json_path: Path, settings: ExtractionSettings):
         temperature=model.temperature,
     )
 
+    print("Configuring Relex LLM")
     builder.relex_llm(
         base_url=model.base_url,
         api_key=model.api_key,
@@ -33,4 +35,5 @@ def build_pipeline(json_path: Path, settings: ExtractionSettings):
     )
 
     builder.graph_writer(json_output=str(json_path))
+    print("Building RetriCo pipeline")
     return builder.build(verbose=True)

@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import asyncio
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 
 from ..dependencies import get_rule_service
 from ..schemas import (
-    RuleSelectionRequest,
-    RuleSelectionResponse,
     RuleExtractionRequest,
     RuleExtractionResponse,
+    RuleSelectionRequest,
+    RuleSelectionResponse,
 )
 from ..services.rule_service import RuleService
-
+from ...config import DOCS_DIR
 
 router = APIRouter(
     prefix="/rules",
@@ -22,34 +21,15 @@ router = APIRouter(
 )
 
 
-def _artifact_summary(artifact: Any) -> dict[str, Any]:
-    """Return only public metadata; do not expose server-side file paths."""
-    return {
-        "artifact_id": str(getattr(artifact, "artifact_id", "")),
-        "domain": str(getattr(artifact, "domain", "")),
-    }
-
-
 async def _run_rule_extraction(
     service: RuleService,
-    source_text: str,
-    domain: str | None,
-) -> tuple[list[dict[str, Any]], list[Any]]:
-    if hasattr(service, "extract_rules") and callable(service.extract_rules):
-        raw_result = service.extract_rules(source_text, domain=domain)
-        if asyncio.iscoroutine(raw_result):
-            raw_result = await raw_result
-        if isinstance(raw_result, tuple) and len(raw_result) == 2:
-            rules_part, sigs_part = raw_result
-            return list(rules_part), list(sigs_part)
-        if isinstance(raw_result, dict):
-            return list(raw_result.get("extracted_rules", [])), list(
-                raw_result.get("signatures", [])
-            )
-
-    artifacts, signatures = service.select_rules(source_text)
-    summaries = [_artifact_summary(item) for item in artifacts]
-    return summaries, list(signatures)
+    docs_dir: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Simplified: Delegation of responsibility to the Service layer.
+    The Service handles the orchestration, loop, and standardization.
+    """
+    return await service.run_extraction_pipeline(docs_dir)
 
 
 @router.post("/select", response_model=RuleSelectionResponse)
@@ -58,43 +38,54 @@ def select_rules_endpoint(
     service: RuleService = Depends(get_rule_service),
 ) -> RuleSelectionResponse:
     try:
+        # The service now handles internal errors gracefully (skipping bad rules)
         artifacts, signatures = service.select_rules(payload.question)
 
         return RuleSelectionResponse(
-            selected_rules=[_artifact_summary(item) for item in artifacts],
+            selected_rules=[
+                {"artifact_id": a.artifact_id, "domain": a.domain} for a in artifacts
+            ],
             signatures=signatures,
         )
 
     except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # This is a legitimate "no results" case
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    except FileNotFoundError as exc:
+        # This happens if the index itself is missing
+        raise HTTPException(status_code=404, detail=f"Resource not found: {str(exc)}")
 
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    except HTTPException:
-        raise
+        # This happens if the input or JSON format is invalid
+        raise HTTPException(status_code=422, detail=str(exc))
 
     except Exception as exc:
+        # Catch-all for unexpected crashes to provide a clean 500
+        import traceback
+
+        print(f"Unhandled exception in select_rules_endpoint: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
-            detail="Rule selection failed.",
-        ) from exc
+            detail="An unexpected error occurred during rule selection.",
+        )
 
 
 @router.post("/extract", response_model=RuleExtractionResponse)
 async def extract_rules_endpoint(
-    payload: RuleExtractionRequest,
     service: RuleService = Depends(get_rule_service),
 ) -> RuleExtractionResponse:
+    docs_dir = DOCS_DIR
     print(
-        f"[PROLOG_RULE_EXTRACTION] Starting Prolog rules extraction task (domain={payload.domain!r}, length={len(payload.source_text)})."
+        f"[PROLOG_RULE_EXTRACTION] Starting Prolog rules extraction task from DOCS_DIR={docs_dir}.",
+        flush=True,
     )
 
     try:
+        # The service handles the heavy lifting of iterating through files and building chains
         extracted_rules, signatures = await _run_rule_extraction(
             service=service,
-            source_text=payload.source_text,
-            domain=payload.domain,
+            docs_dir=docs_dir,
         )
 
         return RuleExtractionResponse(
@@ -114,5 +105,5 @@ async def extract_rules_endpoint(
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail="Prolog rule extraction failed.",
+            detail=f"Prolog rule extraction failed: {str(exc)}",
         ) from exc

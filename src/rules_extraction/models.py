@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import re
 # from typing import Sequence
 from pydantic import (
@@ -61,7 +63,7 @@ class Goal(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    canonical_arity = {
+    canonical_arity: ClassVar[dict[str, int]] = {
         **{predicate: 1 for predicate in extraction_settings.entity_labels},
         **{predicate: 2 for predicate in extraction_settings.relation_labels},
         "param_value": 2,

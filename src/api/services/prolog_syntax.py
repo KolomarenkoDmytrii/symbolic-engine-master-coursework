@@ -264,6 +264,30 @@ def extract_rule_head_signatures(text: str) -> set[tuple[str, int]]:
     return signatures
 
 
+def extract_prolog_atoms(text: str) -> set[str]:
+    """Extract all unique predicate names (atoms) from a Prolog text."""
+    atoms: set[str] = set()
+    try:
+        for clause in split_clauses(text):
+            if ":-" in clause:
+                # It's a rule: head :- body.
+                head_text, body_text = clause.split(":-", 1)
+                # Head
+                p_head, _ = parse_goal(head_text.strip(), allow_variables=True)
+                atoms.add(p_head)
+                # Body (could be multiple goals)
+                for goal_text in _split_top_level(body_text, ","):
+                    p_body, _ = parse_goal(goal_text.strip(), allow_variables=True)
+                    atoms.add(p_body)
+            else:
+                # It's a fact
+                p, _ = parse_goal(clause, allow_variables=False)
+                atoms.add(p)
+    except Exception:
+        pass
+    return atoms
+
+
 def safe_atom(value: str) -> str:
     escaped = []
     for char in value:

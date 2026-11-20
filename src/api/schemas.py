@@ -127,3 +127,18 @@ class RuleExtractionRequest(BaseModel):
 class RuleExtractionResponse(BaseModel):
     extracted_rules: list[dict[str, Any]] = Field(default_factory=list)
     signatures: list[Any] = Field(default_factory=list)
+
+
+class FactEntry(BaseModel):
+    """Represents a single ground Prolog fact in a structured format."""
+
+    predicate: str = Field(description="The predicate name (e.g., 'sensor_status')")
+    args: list[str] = Field(
+        description="A list of ground arguments (e.g., ['gps', 'active'])"
+    )
+
+
+class FactBatch(BaseModel):
+    """The structured container returned by the LLM."""
+
+    facts: list[FactEntry] = Field(description="A list of ground facts to generate.")

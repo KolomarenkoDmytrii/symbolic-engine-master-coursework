@@ -21,7 +21,7 @@ class PipelineContext:
     rule_files: list[RuleArtifact]
     signatures: list[dict[str, Any]]
     graph_atoms: set[str]
-
+    allowed_atoms: set[str]
 
 @dataclass
 class ExecutionResult:

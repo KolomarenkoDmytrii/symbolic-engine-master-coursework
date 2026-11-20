@@ -20,6 +20,7 @@ load_dotenv()
 DEFAULT_BASE_URL = "https://router.huggingface.co/v1"
 DEFAULT_MODEL = "google/gemma-3-27b-it:deepinfra"
 
+DOCS_DIR = Path("./documents")
 
 @dataclass(frozen=True)
 class RstSettings:
@@ -76,7 +77,7 @@ with open(
 
 extraction_settings = ExtractionSettings(
     model=ModelSettings(
-        base_url=os.getenv("OPENAI_MODEL", DEFAULT_BASE_URL),
+        base_url=os.getenv("OPENAI_API_BASE_URL", DEFAULT_BASE_URL),
         api_key=os.getenv("OPENAI_API_KEY", "dummy"),
         model=os.getenv("OPENAI_MODEL", DEFAULT_MODEL),
     ),

@@ -114,9 +114,7 @@ def parse_plan_json(text: str) -> dict[str, Any]:
 
 
 def extract_prolog_atoms(*texts: str) -> set[str]:
-
     combined = "\n".join(texts)
-
     combined = re.sub(
         r"%[^\n]*|/\*.*?\*/",
         "",
@@ -124,6 +122,7 @@ def extract_prolog_atoms(*texts: str) -> set[str]:
         flags=re.DOTALL,
     )
 
+    # Improved regex for quoted atoms
     quoted = set(
         re.findall(
             r"'((?:\\.|[^'\\])*)'",
@@ -131,9 +130,11 @@ def extract_prolog_atoms(*texts: str) -> set[str]:
         )
     )
 
+    # Improved regex for bare atoms to be more inclusive of Prolog naming
+    # Ensures we don't just get single letters but valid predicate/atom names
     bare = set(
         re.findall(
-            r"(?<![A-Za-z0-9_'])[a-z][A-Za-z0-9_]*",
+            r"\b[a-z][A-Za-z0-9_]*\b",
             combined,
         )
     )
@@ -152,6 +153,7 @@ class PlanningService:
         signatures: list[dict[str, Any]],
         graph_facts: str,
         artifacts: list[Any],
+        allowed_atoms: set[str],
     ) -> dict[str, Any]:
 
         prompt = f"""
@@ -160,7 +162,6 @@ Choose one Prolog predicate that best answers the question.
 Return exactly one JSON object.
 
 Required format:
-
 {{
     "predicate": "predicate_name",
     "arguments": [
@@ -182,15 +183,15 @@ Rules:
 - Return no explanations or Markdown.
 
 Allowed signatures:
-
 {json.dumps(signatures, ensure_ascii=False, indent=2)}
 
 Generated graph facts:
-
 {graph_facts}
 
-Selected rules:
+Allowed atoms (constants/facts):
+{", ".join(sorted(allowed_atoms))}
 
+Selected rules:
 {json.dumps(
     [
         {
@@ -203,7 +204,6 @@ Selected rules:
 )}
 
 User question:
-
 {question}
 """.strip()
 

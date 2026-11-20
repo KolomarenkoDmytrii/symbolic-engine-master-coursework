@@ -3,5 +3,8 @@ services:
     # Keep the container alive for editing/debugging instead of starting the app.
     command: ["sleep", "infinity"]
     working_dir: /workspaces/reasoning-service
+    environment:
+      LANG: "C.UTF-8"
+      LC_ALL: "C.UTF-8"
     volumes:
       - .:/workspaces/reasoning-service:Z

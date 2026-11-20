@@ -53,7 +53,12 @@ PROLOG_TIME_LIMIT_SECONDS = 20.0
 
 #     return "'" + "".join(escaped) + "'"
 
+
 def normalize_prolog_result(result: Any) -> dict[str, Any]:
+    """
+    Ensures the result is ALWAYS a JSON-serializable dictionary.
+    This prevents 500 errors during FastAPI response serialization.
+    """
     if result is False or result is None or result == []:
         return {
             "status": "failure",
@@ -68,11 +73,20 @@ def normalize_prolog_result(result: Any) -> dict[str, Any]:
             "truncated": len(result) > MAX_RETURNED_SOLUTIONS,
         }
 
+    # If it's a custom object, try to convert to dict, otherwise stringify
+    if hasattr(result, "__dict__"):
+        return {
+            "status": "success",
+            "result": result.__dict__,
+            "truncated": False,
+        }
+
     return {
         "status": "success",
-        "result": result,
+        "result": str(result),
         "truncated": False,
     }
+
 
 def ensure_sources_have_no_module_declaration(
     source: str,
@@ -106,7 +120,6 @@ def _top_level_arity(arguments: str) -> int:
                 arity += 1
 
     return arity
-
 
 
 def dynamic_declaration(
@@ -197,27 +210,23 @@ def write_combined_program(
     return program_path
 
 
-def _prolog_worker(
-    rules_file: str,
-    goal: str,
-    connection: Any,
-) -> None:
+def _prolog_worker(rules_file: str, goal: str, connection: Any) -> None:
     try:
         config = PrologConfig(rules_file=rules_file)
         runnable = PrologRunnable(prolog_config=config)
         result = runnable.invoke(goal)
+        # Normalize BEFORE sending through the pipe
         connection.send(normalize_prolog_result(result))
-
     except Exception as exc:
+        # Send the exception as a structured dict, not a raw exception object
         connection.send(
             {
                 "status": "exception",
                 "error_type": type(exc).__name__,
                 "error": str(exc),
-                "traceback": traceback.format_exc(limit=8),
+                "traceback": traceback.format_exc(limit=5),
             }
         )
-
     finally:
         connection.close()
 
@@ -289,7 +298,7 @@ def run_prolog_isolated(
             process.join(timeout=2)
 
 
-class PrologService: # pylint: disable=too-few-public-methods
+class PrologService:  # pylint: disable=too-few-public-methods
 
     def __init__(
         self,
